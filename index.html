@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>台北捷運核心樞紐行車控制中心 (Taipei Metro Main Hub OCC)</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Consolas', 'Courier New', 'Microsoft JhengHei', sans-serif;
+        }
+
+        body {
+            background-color: #020617;
+            background-image: 
+                radial-gradient(circle at 50% 50%, rgba(14, 165, 233, 0.1) 0%, transparent 75%),
+                linear-gradient(rgba(14, 165, 233, 0.04) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(14, 165, 233, 0.04) 1px, transparent 1px);
+            background-size: 100% 100%, 15px 15px, 15px 15px;
+            color: #94a3b8;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 10px;
+            overflow-x: hidden;
+        }
+
+        body::before {
+            content: "";
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.3) 50%);
+            background-size: 100% 4px;
+            z-index: 999;
+            pointer-events: none;
+            opacity: 0.45;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 18px;
+            background: rgba(15, 23, 42, 0.9);
+            border: 1px solid rgba(56, 189, 248, 0.35);
+            border-radius: 4px;
+            margin-bottom: 10px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.9);
+        }
+
+        .occ-title {
+            font-size: 1.25rem;
+            font-weight: bold;
+            color: #38bdf8;
+            letter-spacing: 2px;
+            text-shadow: 0 0 10px rgba(56, 189, 248, 0.6);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-tag {
+            font-size: 0.75rem;
+            padding: 2px 8px;
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid #ef4444;
+            color: #f87171;
+            border-radius: 3px;
+            box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        .top-info {
+            display: flex;
+            gap: 25px;
+            font-size: 0.85rem;
+        }
+
+        .top-info span { color: #38bdf8; font-weight: bold; }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 300px 1fr 320px;
+            grid-template-rows: 1fr auto;
+            gap: 10px;
+            flex-grow: 1;
+        }
+
+        .panel {
+            background: rgba(15, 23, 42, 0.8);
+            border: 1px solid rgba(56, 189, 248, 0.25);
+            border-radius: 4px;
+            padding: 12px;
+            position: relative;
+            backdrop-filter: blur(8px);
+            display: flex;
+            flex-direction: column;
+            box-shadow: inset 0 0 15px rgba(0, 0, 0, 0.6);
+        }
+
+        .panel-title {
+            font-size: 0.8rem;
+            color: #38bdf8;
+            letter-spacing: 1.5px;
+            border-bottom: 1px dashed rgba(56, 189, 248, 0.3);
+            padding-bottom: 6px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .metric-card {
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 8px 10px;
+            border-radius: 4px;
+            margin-bottom: 8px;
+        }
+
+        .metric-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.72rem;
+            color: #64748b;
+        }
+
+        .metric-num {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #f8fafc;
+            font-family: 'Courier New', monospace;
+            margin: 2px 0;
+            text-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
+        }
+
+        .progress-bar-bg {
+            height: 5px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 4px;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            width: 50%;
+            background: linear-gradient(90deg, #38bdf8, #818cf8);
+            transition: width 0.5s ease;
+        }
+
+        .center-map-panel {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            background: rgba(5, 11, 24, 0.95);
+            border: 1px solid rgba(56, 189, 248, 0.4);
+            box-shadow: 0 0 30px rgba(0, 242, 254, 0.15);
+        }
+
+        #taiwanMetroCanvas {
+            width: 100%;
+            height: 100%;
+            min-height: 580px;
+            cursor: grab;
+        }
+
+        #taiwanMetroCanvas:active {
+            cursor: grabbing;
+        }
+
+        .map-overlay-info {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            font-size: 0.72rem;
+            background: rgba(3, 7, 18, 0.88);
+            padding: 8px 12px;
+            border-left: 3px solid #38bdf8;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .map-controls {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            z-index: 10;
+        }
+
+        .map-btn {
+            width: 36px;
+            height: 36px;
+            background: rgba(15, 23, 42, 0.9);
+            border: 1px solid rgba(56, 189, 248, 0.4);
+            color: #38bdf8;
+            font-size: 1.2rem;
+            font-weight: bold;
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+            transition: all 0.2s;
+        }
+
+        .map-btn:hover {
+            background: rgba(56, 189, 248, 0.2);
+            color: #fff;
+        }
+
+        .map-legend {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(3, 7, 18, 0.85);
+            border: 1px solid rgba(56, 189, 248, 0.2);
+            padding: 8px 12px;
+            font-size: 0.68rem;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        .legend-item { display: flex; align-items: center; gap: 6px; }
+        .legend-color { width: 12px; height: 4px; border-radius: 2px; }
+
+        .platform-status-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+
+        .platform-box {
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(56, 189, 248, 0.2);
+            padding: 6px;
+            font-size: 0.68rem;
+        }
+
+        .platform-title { color: #38bdf8; font-weight: bold; margin-bottom: 2px; }
+        .platform-crowd { color: #f59e0b; font-family: monospace; }
+
+        .log-container {
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(56, 189, 248, 0.1);
+            flex-grow: 1;
+            padding: 8px;
+            font-size: 0.68rem;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .log-entry {
+            border-left: 2px solid #38bdf8;
+            padding-left: 6px;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateX(-5px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .bottom-panel {
+            grid-column: 1 / -1;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+        }
+
+        .agency-card {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 8px;
+            text-align: center;
+            border-radius: 3px;
+        }
+
+        .agency-title { font-size: 0.7rem; color: #64748b; }
+        .agency-ping { 
+            font-size: 1.1rem; 
+            color: #00ff88; 
+            margin-top: 2px;
+            font-weight: bold;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="occ-title">TAIPEI METRO COMPLEX OCC</div>
+        <div class="top-info">
+            <div>路網狀態: <span class="status-tag">TERMINAL LOOP ACTIVE</span></div>
+            <div>動態列車: <span id="train-count">24 列營運中</span></div>
+            <div>人流量: <span id="passenger-total">72,150 人/h</span></div>
+            <div>OCC 時間: <span id="clock">00:00:00</span></div>
+        </div>
+    </header>
+
+    <div class="dashboard-grid">
+
+        <div class="panel">
+            <div class="panel-title">
+                <span>台北大都會路網監控</span>
+                <span>NETWORK_SYS</span>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-header">
+                    <span>板南線去/回程承載率</span>
+                    <span>LIMIT: 85%</span>
+                </div>
+                <div class="metric-num"><span id="crowd-bl">88.4</span> <span style="font-size:0.9rem; color:#ef4444;">%</span></div>
+                <div class="progress-bar-bg"><div class="progress-bar-fill" id="bar-bl" style="background: linear-gradient(90deg, #38bdf8, #ef4444);"></div></div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-header">
+                    <span>淡水信義線去/回程承載率</span>
+                    <span>LIMIT: 85%</span>
+                </div>
+                <div class="metric-num"><span id="crowd-r">76.2</span> <span style="font-size:0.9rem; color:#f59e0b;">%</span></div>
+                <div class="progress-bar-bg"><div class="progress-bar-fill" id="bar-r" style="background: linear-gradient(90deg, #22c55e, #f59e0b);"></div></div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-header">
+                    <span>雙軌交會節點流量</span>
+                    <span>MAX: 18,000 P/h</span>
+                </div>
+                <div class="metric-num"><span id="flow-val">12,840</span> <span style="font-size:0.9rem; color:#38bdf8;">P/h</span></div>
+                <div class="progress-bar-bg"><div class="progress-bar-fill" id="bar-flow"></div></div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-header">
+                    <span>末端端點站迴轉號誌</span>
+                    <span>STATUS: 100% OK</span>
+                </div>
+                <div class="metric-num"><span id="air-val">99.8</span> <span style="font-size:0.9rem; color:#22c55e;">%</span></div>
+                <div class="progress-bar-bg"><div class="progress-bar-fill" id="bar-air" style="background: #22c55e;"></div></div>
+            </div>
+        </div>
+
+        <div class="panel center-map-panel">
+            <div class="map-overlay-info">
+                <div style="color: #38bdf8; font-weight: bold;">COMPLETE TERMINAL STATION NETWORK</div>
+                <div style="font-size: 0.65rem; color: #64748b;">各路線均有起點/終點末端站 | 列車於兩端站自動迴轉 | 縮放: <span id="zoom-level" style="color:#00ff88;">1.3x</span></div>
+            </div>
+
+            <div class="map-controls">
+                <button class="map-btn" id="btn-zoom-in" title="放大">+</button>
+                <button class="map-btn" id="btn-zoom-out" title="縮小">-</button>
+                <button class="map-btn" id="btn-zoom-reset" title="重置">↺</button>
+            </div>
+
+            <div class="map-legend">
+                <div class="legend-item"><div class="legend-color" style="background: #0070bd;"></div>板南線 BL (頂埔 ↔ 南港)</div>
+                <div class="legend-item"><div class="legend-color" style="background: #e3002c;"></div>淡水信義線 R (淡水 ↔ 象山)</div>
+                <div class="legend-item"><div class="legend-color" style="background: #008659;"></div>松山新店線 G (松山 ↔ 新店)</div>
+                <div class="legend-item"><div class="legend-color" style="background: #f8b61c;"></div>中和新蘆線 O (蘆洲 ↔ 南勢角)</div>
+                <div class="legend-item"><div class="legend-color" style="background: #eab308;"></div>環狀線 Y (新莊 ↔ 大坪林)</div>
+                <div class="legend-item"><div class="legend-color" style="background: #92400e;"></div>文湖線 BR (南港展覽館 ↔ 動物園)</div>
+            </div>
+
+            <canvas id="taiwanMetroCanvas"></canvas>
+        </div>
+
+        <div class="panel">
+            <div class="panel-title">
+                <span>末端站監控</span>
+                <span>TERMINALS</span>
+            </div>
+
+            <div class="platform-status-grid">
+                <div class="platform-box">
+                    <div class="platform-title">BL 端點：頂埔站</div>
+                    <div>折返狀態: 正常迴轉</div>
+                    <div class="platform-crowd">月台容留: 62%</div>
+                </div>
+                <div class="platform-box">
+                    <div class="platform-title">BL 端點：南港展覽館</div>
+                    <div>折返狀態: 正常迴轉</div>
+                    <div class="platform-crowd">月台容留: 78%</div>
+                </div>
+                <div class="platform-box">
+                    <div class="platform-title">R 端點：淡水站</div>
+                    <div>折返狀態: 正常迴轉</div>
+                    <div class="platform-crowd" style="color:#22c55e;">月台容留: 45%</div>
+                </div>
+                <div class="platform-box">
+                    <div class="platform-title">R 端點：象山站</div>
+                    <div>折返狀態: 正常迴轉</div>
+                    <div class="platform-crowd">月台容留: 55%</div>
+                </div>
+            </div>
+
+            <div class="panel-title"><span>末端站自動調度紀錄</span></div>
+            <div class="log-container" id="logBox"></div>
+        </div>
+
+        <div class="panel bottom-panel">
+            <div class="agency-card"><div class="agency-title">末端站轉轍器控制</div><div class="agency-ping" id="node-1">2 ms</div></div>
+            <div class="agency-card"><div class="agency-title">雙向軌道防追撞號誌</div><div class="agency-ping" id="node-2">3 ms</div></div>
+            <div class="agency-card"><div class="agency-title">端點自動駕駛折返</div><div class="agency-ping" id="node-3">7 ms</div></div>
+            <div class="agency-card"><div class="agency-title">中央車輛編組調度</div><div class="agency-ping" id="node-4">4 ms</div></div>
+        </div>
+
+    </div>
+
+    <script>
+        function updateClock() {
+            document.getElementById('clock').innerText = new Date().toTimeString().split(' ')[0];
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        const state = {
+            crowdBl: { current: 88.4, target: 88.4 },
+            crowdR: { current: 76.2, target: 76.2 },
+            flow: { current: 12840, target: 12840 }
+        };
+
+        setInterval(() => {
+            state.crowdBl.target = (Math.random() * 10 + 82).toFixed(1);
+            state.crowdR.target = (Math.random() * 12 + 70).toFixed(1);
+            state.flow.target = Math.floor(Math.random() * 2000 + 11000);
+        }, 1800);
+
+        function renderLoop() {
+            state.crowdBl.current += (state.crowdBl.target - state.crowdBl.current) * 0.05;
+            document.getElementById('crowd-bl').innerText = state.crowdBl.current.toFixed(1);
+            document.getElementById('bar-bl').style.width = state.crowdBl.current + '%';
+
+            state.crowdR.current += (state.crowdR.target - state.crowdR.current) * 0.05;
+            document.getElementById('crowd-r').innerText = state.crowdR.current.toFixed(1);
+            document.getElementById('bar-r').style.width = state.crowdR.current + '%';
+
+            state.flow.current += (state.flow.target - state.flow.current) * 0.05;
+            document.getElementById('flow-val').innerText = Math.round(state.flow.current).toLocaleString();
+            document.getElementById('bar-flow').style.width = (state.flow.current / 18000 * 100) + '%';
+
+            requestAnimationFrame(renderLoop);
+        }
+        requestAnimationFrame(renderLoop);
+
+        const canvas = document.getElementById('taiwanMetroCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let zoomScale = 1.3;
+        const TRACK_OFFSET = 5; 
+
+        function resizeCanvas() {
+            canvas.width = canvas.parentElement.clientWidth;
+            canvas.height = canvas.parentElement.clientHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // 完整包含起點與終點末端站的捷運路線
+        const hubLines = [
+            { color: "#0070bd", name: "板南線", points: [
+                {x:-0.58, y:-0.05, name:"頂埔", isTerminal: true},
+                {x:-0.42, y:-0.05, name:"板橋"},
+                {x:-0.25, y:-0.05, name:"新埔"},
+                {x:-0.12, y:-0.05, name:"西門"},
+                {x:0.0, y:-0.05, name:"台北車站"},
+                {x:0.15, y:-0.05, name:"忠孝新生"},
+                {x:0.30, y:-0.05, name:"忠孝復興"},
+                {x:0.45, y:-0.05, name:"南港展覽館", isTerminal: true}
+            ]},
+            { color: "#e3002c", name: "淡水信義線", points: [
+                {x:0.0, y:-0.42, name:"淡水", isTerminal: true},
+                {x:0.0, y:-0.28, name:"北投"},
+                {x:0.0, y:-0.18, name:"圓山"},
+                {x:0.0, y:-0.10, name:"中山"},
+                {x:0.0, y:-0.05, name:"台北車站"},
+                {x:0.0, y:0.08, name:"台大醫院"},
+                {x:0.0, y:0.22, name:"東門"},
+                {x:0.0, y:0.40, name:"象山", isTerminal: true}
+            ]},
+            { color: "#008659", name: "松山新店線", points: [
+                {x:-0.32, y:-0.30, name:"松山", isTerminal: true},
+                {x:-0.22, y:-0.18, name:"北門"},
+                {x:-0.12, y:-0.05, name:"西門"},
+                {x:0.0, y:0.08, name:"小南門"},
+                {x:0.15, y:0.22, name:"古亭"},
+                {x:0.30, y:0.30, name:"公館"},
+                {x:0.42, y:0.42, name:"新店", isTerminal: true}
+            ]},
+            { color: "#f8b61c", name: "中和新蘆線", points: [
+                {x:0.38, y:-0.38, name:"蘆洲", isTerminal: true},
+                {x:0.25, y:-0.25, name:"行天宮"},
+                {x:0.15, y:-0.15, name:"松江南京"},
+                {x:0.15, y:-0.05, name:"忠孝新生"},
+                {x:0.0, y:0.22, name:"東門"},
+                {x:-0.12, y:0.32, name:"頂溪"},
+                {x:-0.22, y:0.42, name:"南勢角", isTerminal: true}
+            ]},
+            { color: "#eab308", name: "環狀線", points: [
+                {x:-0.32, y:-0.28, name:"新莊", isTerminal: true},
+                {x:-0.42, y:-0.05, name:"板橋"},
+                {x:-0.28, y:0.20, name:"中和"},
+                {x:0.0, y:0.38, name:"景安"},
+                {x:0.30, y:0.30, name:"大坪林", isTerminal: true}
+            ]},
+            { color: "#92400e", name: "文湖線", points: [
+                {x:0.45, y:-0.25, name:"南港展覽館", isTerminal: true},
+                {x:0.30, y:-0.25, name:"松山機場"},
+                {x:0.30, y:-0.05, name:"忠孝復興"},
+                {x:0.30, y:0.18, name:"科技大樓"},
+                {x:0.30, y:0.35, name:"動物園", isTerminal: true}
+            ]}
+        ];
+
+        // 列車初始化 (分配在不同的軌道段與方向)
+        const trains = [];
+        hubLines.forEach((line, lIdx) => {
+            for (let i = 0; i < line.points.length - 1; i++) {
+                if (i % 2 === 0) {
+                    trains.push({ lineIdx: lIdx, pIdx: i, dir: 1, progress: Math.random(), speed: 0.003 });
+                    trains.push({ lineIdx: lIdx, pIdx: i, dir: -1, progress: Math.random(), speed: 0.003 });
+                }
+            }
+        });
+
+        let scanAngle = 0;
+
+        function getOffsetPoint(p1, p2, offset) {
+            const dx = p2.x - p1.x;
+            const dy = p2.y - p1.y;
+            const len = Math.hypot(dx, dy);
+            if (len === 0) return { x: p1.x, y: p1.y };
+            
+            const nx = -dy / len;
+            const ny = dx / len;
+
+            return {
+                x: p1.x + nx * offset,
+                y: p1.y + ny * offset
+            };
+        }
+
+        function drawMetroTrainIcon(ctx, x, y, angle, lineColor) {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(angle);
+
+            ctx.shadowBlur = 8;
+            ctx.shadowColor = lineColor;
+
+            ctx.fillStyle = "#f8fafc";
+            ctx.beginPath();
+            ctx.roundRect(-9, -4, 18, 8, [2, 4, 4, 2]);
+            ctx.fill();
+
+            ctx.fillStyle = lineColor;
+            ctx.fillRect(-7, 1, 14, 2);
+
+            ctx.fillStyle = "#38bdf8";
+            ctx.beginPath();
+            ctx.moveTo(5, -2);
+            ctx.lineTo(8, 0);
+            ctx.lineTo(5, 2);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.shadowBlur = 4;
+            ctx.shadowColor = "#fef08a";
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(8, -2, 1.5, 1);
+            ctx.fillRect(8, 1, 1.5, 1);
+
+            ctx.restore();
+        }
+
+        function drawMetroMap() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const w = canvas.width;
+            const h = canvas.height;
+            const centerX = w / 2;
+            const centerY = h / 2;
+
+            scanAngle += 0.01;
+            ctx.save();
+            ctx.translate(centerX, centerY);
+            ctx.strokeStyle = "rgba(56, 189, 248, 0.06)";
+            ctx.beginPath();
+            ctx.arc(0, 0, 240 * zoomScale, 0, Math.PI * 2);
+            ctx.arc(0, 0, 160 * zoomScale, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.arc(0, 0, 280 * zoomScale, scanAngle, scanAngle + 0.2);
+            ctx.fillStyle = "rgba(56, 189, 248, 0.03)";
+            ctx.fill();
+            ctx.restore();
+
+            // 繪製雙軌軌道
+            hubLines.forEach(line => {
+                [-TRACK_OFFSET, TRACK_OFFSET].forEach(offset => {
+                    ctx.lineWidth = 2 * (zoomScale / 1.3);
+                    ctx.strokeStyle = line.color;
+                    ctx.shadowBlur = 4;
+                    ctx.shadowColor = line.color;
+
+                    ctx.beginPath();
+                    for (let i = 0; i < line.points.length - 1; i++) {
+                        const pt1 = {
+                            x: centerX + line.points[i].x * w * zoomScale,
+                            y: centerY + line.points[i].y * h * zoomScale
+                        };
+                        const pt2 = {
+                            x: centerX + line.points[i+1].x * w * zoomScale,
+                            y: centerY + line.points[i+1].y * h * zoomScale
+                        };
+
+                        const offPt1 = getOffsetPoint(pt1, pt2, offset);
+                        const offPt2 = getOffsetPoint(pt2, pt1, -offset);
+
+                        if (i === 0) ctx.moveTo(offPt1.x, offPt1.y);
+                        ctx.lineTo(offPt2.x, offPt2.y);
+                    }
+                    ctx.stroke();
+                });
+            });
+            ctx.shadowBlur = 0;
+
+            // 繪製捷運站點（包含末端站樣式特別處理）
+            hubLines.forEach(line => {
+                line.points.forEach((pt) => {
+                    const px = centerX + pt.x * w * zoomScale;
+                    const py = centerY + pt.y * h * zoomScale;
+
+                    if (pt.isTerminal) {
+                        // 終點站：較大的外框雙圈發光設計
+                        ctx.shadowBlur = 10;
+                        ctx.shadowColor = line.color;
+                        ctx.fillStyle = "#ffffff";
+                        ctx.strokeStyle = line.color;
+                        ctx.lineWidth = 3;
+
+                        ctx.beginPath();
+                        ctx.arc(px, py, 7, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.stroke();
+
+                        ctx.shadowBlur = 0;
+                        ctx.fillStyle = "#ffffff";
+                        ctx.font = "bold 12px Consolas, Microsoft JhengHei";
+                        ctx.fillText("🚩 " + pt.name, px + 10, py + 4);
+                    } else {
+                        // 普通中途站
+                        ctx.fillStyle = "#0f172a";
+                        ctx.strokeStyle = line.color;
+                        ctx.lineWidth = 2;
+
+                        ctx.beginPath();
+                        ctx.arc(px, py, 4.5, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.stroke();
+
+                        ctx.fillStyle = "#94a3b8";
+                        ctx.font = "11px Consolas, Microsoft JhengHei";
+                        ctx.fillText(pt.name, px + 8, py + 3);
+                    }
+                });
+            });
+
+            // 動態列車計算與末端站迴轉機制
+            trains.forEach(t => {
+                t.progress += t.speed;
+
+                const line = hubLines[t.lineIdx];
+
+                // 列車抵達當前片段終點時的切換邏輯
+                if (t.progress >= 1) {
+                    t.progress = 0;
+                    if (t.dir === 1) { // 去程向前進
+                        t.pIdx++;
+                        if (t.pIdx >= line.points.length - 1) { // 觸及終點站，轉為回程
+                            t.dir = -1;
+                            t.pIdx = line.points.length - 2;
+                        }
+                    } else { // 回程向後退
+                        t.pIdx--;
+                        if (t.pIdx < 0) { // 觸及起點站，轉為去程
+                            t.dir = 1;
+                            t.pIdx = 0;
+                        }
+                    }
+                }
+
+                let p1, p2, offset;
+                if (t.dir === 1) {
+                    p1 = line.points[t.pIdx];
+                    p2 = line.points[t.pIdx + 1];
+                    offset = TRACK_OFFSET;
+                } else {
+                    p1 = line.points[t.pIdx + 1];
+                    p2 = line.points[t.pIdx];
+                    offset = TRACK_OFFSET;
+                }
+
+                const pt1 = {
+                    x: centerX + p1.x * w * zoomScale,
+                    y: centerY + p1.y * h * zoomScale
+                };
+                const pt2 = {
+                    x: centerX + p2.x * w * zoomScale,
+                    y: centerY + p2.y * h * zoomScale
+                };
+
+                const offPt1 = getOffsetPoint(pt1, pt2, offset);
+                const offPt2 = getOffsetPoint(pt2, pt1, -offset);
+
+                const tx = offPt1.x + (offPt2.x - offPt1.x) * t.progress;
+                const ty = offPt1.y + (offPt2.y - offPt1.y) * t.progress;
+
+                const angle = Math.atan2(offPt2.y - offPt1.y, offPt2.x - offPt1.x);
+
+                drawMetroTrainIcon(ctx, tx, ty, angle, line.color);
+            });
+
+            requestAnimationFrame(drawMetroMap);
+        }
+        drawMetroMap();
+
+        function setZoom(val) {
+            zoomScale = Math.min(Math.max(val, 0.9), 2.5);
+            document.getElementById('zoom-level').innerText = zoomScale.toFixed(1) + 'x';
+        }
+
+        document.getElementById('btn-zoom-in').addEventListener('click', () => setZoom(zoomScale + 0.2));
+        document.getElementById('btn-zoom-out').addEventListener('click', () => setZoom(zoomScale - 0.2));
+        document.getElementById('btn-zoom-reset').addEventListener('click', () => setZoom(1.3));
+
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            if (e.deltaY < 0) setZoom(zoomScale + 0.1);
+            else setZoom(zoomScale - 0.1);
+        });
+
+        const logs = [
+            "淡水站終點端端點轉轍器切換完成，列車轉入回程軌",
+            "南港展覽館站雙向月台自動屏蔽門作動正常",
+            "象山端點站列車自動完成駕駛室雙向切換",
+            "頂埔站端點自動號誌鎖定，準備發出去程列車",
+            "動物園端點站軌道迴轉連鎖保護系統 OK"
+        ];
+
+        function addOccLog() {
+            const logBox = document.getElementById('logBox');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            const time = new Date().toTimeString().split(' ')[0];
+            entry.innerText = `[${time}] ${logs[Math.floor(Math.random() * logs.length)]}`;
+            logBox.prepend(entry);
+            if (logBox.children.length > 7) logBox.removeChild(logBox.lastChild);
+        }
+        setInterval(addOccLog, 1800);
+        addOccLog();
+
+        setInterval(() => {
+            document.getElementById('node-1').innerText = (2 + Math.floor(Math.random() * 2)) + ' ms';
+            document.getElementById('node-2').innerText = (3 + Math.floor(Math.random() * 2)) + ' ms';
+            document.getElementById('node-3').innerText = (7 + Math.floor(Math.random() * 3)) + ' ms';
+            document.getElementById('node-4').innerText = (4 + Math.floor(Math.random() * 3)) + ' ms';
+        }, 1200);
+    </script>
+</body>
+</html>
